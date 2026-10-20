@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PDF 합치기</title>
+<meta name="description" content="PDF 두 개를 브라우저 안에서 하나로 합칩니다. 파일은 업로드되지 않아요.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22%3E%3Crect x=%223%22 y=%225%22 width=%2212%22 height=%2216%22 rx=%221.5%22 fill=%22%2316202b%22/%3E%3Crect x=%229%22 y=%223%22 width=%2212%22 height=%2216%22 rx=%221.5%22 fill=%22%232b55d6%22/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: a binding bench — two sheets side by side with a swap hinge between, the bound result underneath */
+:root {
+  --bg: #e9edf1;
+  --paper: #fbfcfd;
+  --ink: #16202b;
+  --muted: #5b6876;
+  --line: #c9d1da;
+  --accent: #2b55d6;
+  --accent-ink: #ffffff;
+  --accent-soft: #dbe4fb;
+  --ok: #1f7a4d;
+  --err: #b4322b;
+  --err-soft: #f8e1df;
+  --shadow: 0 1px 2px rgba(22,32,43,.06), 0 6px 18px rgba(22,32,43,.07);
+  --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12171d; --paper: #1b222b; --ink: #e6ebf0; --muted: #9aa7b4; --line: #2e3945;
+    --accent: #7d9bff; --accent-ink: #0d1530; --accent-soft: #23305a;
+    --ok: #5fcf96; --err: #ff8a80; --err-soft: #3a1f1d;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 18px rgba(0,0,0,.25);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12171d; --paper: #1b222b; --ink: #e6ebf0; --muted: #9aa7b4; --line: #2e3945;
+  --accent: #7d9bff; --accent-ink: #0d1530; --accent-soft: #23305a;
+  --ok: #5fcf96; --err: #ff8a80; --err-soft: #3a1f1d;
+  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 18px rgba(0,0,0,.25);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { color-scheme: light; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+body { margin: 0; }
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 56px;
+}
+.wrap { max-width: 880px; margin: 0 auto; display: grid; gap: 28px; }
+
+header { display: grid; gap: 6px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { margin: 0; font-size: clamp(26px, 5vw, 34px); font-weight: 700; letter-spacing: -.01em; text-wrap: balance; }
+.lede { margin: 0; color: var(--muted); max-width: 60ch; }
+
+.bench { display: grid; grid-template-columns: 1fr auto 1fr; gap: 14px; align-items: stretch; }
+@media (max-width: 640px) { .bench { grid-template-columns: 1fr; } }
+
+.slot {
+  position: relative; min-width: 0;
+  background: var(--paper); border: 1.5px dashed var(--line); border-radius: 10px;
+  padding: 18px; display: grid; gap: 14px; align-content: start;
+  transition: border-color .15s, background .15s;
+}
+.slot.filled { border-style: solid; box-shadow: var(--shadow); }
+.slot.drag { border-color: var(--accent); background: var(--accent-soft); }
+.slot-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tag { font-family: var(--font-mono); font-size: 12px; font-weight: 500; color: var(--muted); letter-spacing: .04em; }
+.tag b { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--ink); color: var(--paper); font-weight: 500; margin-right: 6px; }
+
+.drop {
+  display: grid; place-items: center; gap: 10px; text-align: center;
+  min-height: 200px; padding: 16px; border-radius: 8px; cursor: pointer; color: var(--muted);
+}
+.drop:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.drop svg { width: 40px; height: 40px; color: var(--line); }
+.drop strong { color: var(--ink); font-weight: 600; }
+.drop small { font-size: 13px; }
+
+.file { display: grid; grid-template-columns: 96px 1fr; gap: 14px; align-items: start; }
+.thumb {
+  width: 96px; aspect-ratio: 1 / 1.414; max-width: 100%; background: #fff; border: 1px solid var(--line);
+  border-radius: 3px; overflow: hidden; display: grid; place-items: center; color: #9aa4ae;
+}
+.thumb canvas { width: 100%; height: 100%; object-fit: contain; display: block; }
+.meta { min-width: 0; display: grid; gap: 4px; }
+.fname { font-weight: 600; overflow-wrap: anywhere; line-height: 1.35; }
+.facts { font-family: var(--font-mono); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.slot-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+
+.hinge { display: grid; place-items: center; }
+.swap {
+  width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line);
+  background: var(--paper); color: var(--ink); cursor: pointer; display: grid; place-items: center;
+  box-shadow: var(--shadow); transition: transform .2s;
+}
+.swap:hover:not(:disabled) { transform: rotate(180deg); }
+.swap:disabled { opacity: .4; cursor: not-allowed; }
+.swap svg { width: 20px; height: 20px; }
+@media (max-width: 640px) { .swap svg { transform: rotate(90deg); } }
+
+button.text {
+  font: inherit; font-size: 13px; padding: 5px 10px; border-radius: 6px; cursor: pointer;
+  background: transparent; border: 1px solid var(--line); color: var(--ink);
+}
+button.text:hover { border-color: var(--muted); }
+
+.result {
+  background: var(--paper); border-radius: 10px; box-shadow: var(--shadow);
+  padding: 20px; display: grid; gap: 16px;
+}
+.result h2 { margin: 0; font-size: 17px; font-weight: 600; }
+.strip { display: flex; height: 34px; border-radius: 4px; overflow: hidden; border: 1px solid var(--line); background: var(--bg); }
+.strip .seg { display: grid; place-items: center; font-family: var(--font-mono); font-size: 12px; min-width: 0; overflow: hidden; white-space: nowrap; transition: flex-grow .3s; }
+.strip .a { background: var(--ink); color: var(--paper); }
+.strip .b { background: var(--accent); color: var(--accent-ink); }
+.strip .empty { flex: 1; color: var(--muted); }
+.summary { font-family: var(--font-mono); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; margin: 0; }
+
+.save-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+.field { display: grid; gap: 4px; flex: 1 1 240px; min-width: 0; }
+.field label { font-size: 13px; color: var(--muted); }
+.field input {
+  font: inherit; font-family: var(--font-mono); font-size: 14px; padding: 10px 12px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--ink); width: 100%;
+}
+.primary {
+  font: inherit; font-weight: 600; padding: 11px 22px; border-radius: 6px; border: 0; cursor: pointer;
+  background: var(--accent); color: var(--accent-ink); white-space: nowrap;
+}
+.primary:disabled { opacity: .45; cursor: not-allowed; }
+
+.status { margin: 0; font-size: 14px; min-height: 1.55em; }
+.status.ok { color: var(--ok); }
+.status.err { color: var(--err); }
+.status.err:not(:empty) { background: var(--err-soft); padding: 8px 12px; border-radius: 6px; }
+
+.foot { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.foot button { font-size: 13px; }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="eyebrow">2 files → 1 PDF</span>
+    <h1>PDF 합치기</h1>
+    <p class="lede">PDF 두 개를 올리면 ① 뒤에 ② 를 이어 붙여 한 파일로 만듭니다. 파일은 이 브라우저 안에서만 처리되고 어디에도 업로드되지 않아요.</p>
+  </header>
+
+  <section class="bench" aria-label="합칠 파일">
+    <div class="slot" id="slot-0" data-i="0"></div>
+    <div class="hinge"><button class="swap" id="swap" type="button" aria-label="순서 바꾸기" title="순서 바꾸기" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4 3 8l4 4"/><path d="M3 8h14"/><path d="m17 20 4-4-4-4"/><path d="M21 16H7"/></svg>
+    </button></div>
+    <div class="slot" id="slot-1" data-i="1"></div>
+  </section>
+
+  <section class="result" aria-label="합친 결과">
+    <h2>합친 결과</h2>
+    <div class="strip" id="strip"></div>
+    <p class="summary" id="summary"></p>
+    <div class="save-row">
+      <div class="field">
+        <label for="outname">저장할 파일 이름</label>
+        <input id="outname" type="text" value="merged.pdf" spellcheck="false" autocomplete="off">
+      </div>
+      <button class="primary" id="merge" type="button" disabled>합쳐서 저장</button>
+    </div>
+    <p class="status" id="status" role="status" aria-live="polite"></p>
+  </section>
+
+  <div class="foot">
+    <span>암호가 걸린 PDF는 합칠 수 없어요.</span>
+    <button class="text" id="sample" type="button">예시 파일로 해보기</button>
+  </div>
+
+  <input type="file" id="picker" accept="application/pdf,.pdf" hidden>
+</div>
+
+<script src="lib/pdf-lib.min.js"></script>
+<script src="lib/pdf.min.js"></script>
+<script>if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdf.worker.min.js';</script>
+<script>
+(function () {
+  const slots = [null, null]; // { name, bytes, pages, size }
+  const els = [document.getElementById('slot-0'), document.getElementById('slot-1')];
+  const picker = document.getElementById('picker');
+  const swapBtn = document.getElementById('swap');
+  const mergeBtn = document.getElementById('merge');
+  const outname = document.getElementById('outname');
+  const statusEl = document.getElementById('status');
+  const strip = document.getElementById('strip');
+  const summary = document.getElementById('summary');
+  let pickTarget = 0;
+  let nameTouched = false;
+  function saveBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+
+  const ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 17v-6"/><path d="m9 14 3-3 3 3"/></svg>';
+
+  function fmtSize(n) {
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+    return (n / 1024 / 1024).toFixed(1) + ' MB';
+  }
+  function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+  function setStatus(msg, kind) { statusEl.textContent = msg || ''; statusEl.className = 'status' + (kind ? ' ' + kind : ''); }
+  function stem(n) { return n.replace(/\.pdf$/i, ''); }
+
+  function renderSlot(i) {
+    const el = els[i], s = slots[i];
+    const label = i === 0 ? '앞에 올 파일' : '뒤에 붙일 파일';
+    el.classList.toggle('filled', !!s);
+    if (!s) {
+      el.innerHTML =
+        '<div class="slot-head"><span class="tag"><b>' + (i + 1) + '</b>' + label + '</span></div>' +
+        '<div class="drop" tabindex="0" role="button" aria-label="' + (i + 1) + '번 PDF 선택">' + ICON +
+        '<div><strong>PDF를 끌어다 놓거나</strong><br><small>눌러서 파일 선택</small></div></div>';
+      const d = el.querySelector('.drop');
+      d.addEventListener('click', () => openPicker(i));
+      d.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openPicker(i); } });
+      return;
+    }
+    el.innerHTML =
+      '<div class="slot-head"><span class="tag"><b>' + (i + 1) + '</b>' + label + '</span></div>' +
+      '<div class="file"><div class="thumb" id="thumb-' + i + '">' + ICON + '</div>' +
+      '<div class="meta"><div class="fname">' + esc(s.name) + '</div>' +
+      '<div class="facts">' + s.pages + '쪽 · ' + fmtSize(s.size) + '</div>' +
+      '<div class="slot-actions"><button class="text" type="button" data-act="replace">바꾸기</button>' +
+      '<button class="text" type="button" data-act="remove">빼기</button></div></div></div>';
+    el.querySelector('[data-act=replace]').addEventListener('click', () => openPicker(i));
+    el.querySelector('[data-act=remove]').addEventListener('click', () => { slots[i] = null; renderSlot(i); refresh(); setStatus(''); });
+    if (s.thumb) { const t = el.querySelector('.thumb'); t.innerHTML = ''; t.appendChild(cloneCanvas(s.thumb)); }
+  }
+
+  function cloneCanvas(src) {
+    const c = document.createElement('canvas');
+    c.width = src.width; c.height = src.height;
+    c.getContext('2d').drawImage(src, 0, 0);
+    return c;
+  }
+
+  function refresh() {
+    const [a, b] = slots;
+    swapBtn.disabled = !(a || b);
+    const total = (a ? a.pages : 0) + (b ? b.pages : 0);
+    strip.innerHTML = '';
+    if (!a && !b) {
+      strip.innerHTML = '<div class="seg empty">파일을 올리면 쪽 순서가 여기 표시돼요</div>';
+      summary.textContent = '총 0쪽';
+    } else {
+      [a, b].forEach((s, i) => {
+        if (!s) return;
+        const seg = document.createElement('div');
+        seg.className = 'seg ' + (i === 0 ? 'a' : 'b');
+        seg.style.flexGrow = String(s.pages);
+        seg.style.flexBasis = '0';
+        seg.textContent = (i + 1) + ' · ' + s.pages + '쪽';
+        seg.title = s.name;
+        strip.appendChild(seg);
+      });
+      let line = '총 ' + total + '쪽';
+      if (a && b) line += '  =  ①  1–' + a.pages + '쪽  +  ②  ' + (a.pages + 1) + '–' + total + '쪽';
+      else line += '  ·  파일 하나를 더 올려 주세요';
+      summary.textContent = line;
+    }
+    if (!nameTouched) outname.value = (a && b) ? stem(a.name) + '+' + stem(b.name) + '.pdf' : 'merged.pdf';
+    const ready = !!(a && b);
+    mergeBtn.disabled = !ready;
+  }
+
+  function openPicker(i) { pickTarget = i; picker.value = ''; picker.click(); }
+  picker.addEventListener('change', () => { if (picker.files[0]) loadFile(picker.files[0], pickTarget); });
+
+  els.forEach((el, i) => {
+    el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('drag'); });
+    el.addEventListener('dragleave', e => { if (!el.contains(e.relatedTarget)) el.classList.remove('drag'); });
+    el.addEventListener('drop', e => {
+      e.preventDefault(); el.classList.remove('drag');
+      const files = [...(e.dataTransfer.files || [])].filter(f => /\.pdf$/i.test(f.name) || f.type === 'application/pdf');
+      if (!files.length) { setStatus('PDF 파일만 올릴 수 있어요.', 'err'); return; }
+      loadFile(files[0], i);
+      // Dropping two files at once fills both slots
+      if (files[1]) loadFile(files[1], 1 - i);
+    });
+  });
+
+  async function loadFile(file, i) {
+    if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') { setStatus('“' + file.name + '”은(는) PDF가 아니에요.', 'err'); return; }
+    setStatus('“' + file.name + '” 읽는 중…');
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      await addBytes(file.name, bytes, i);
+      setStatus('');
+    } catch (err) {
+      setStatus(explain(err, file.name), 'err');
+    }
+  }
+
+  async function addBytes(name, bytes, i) {
+    const doc = await PDFLib.PDFDocument.load(bytes);
+    slots[i] = { name, bytes, pages: doc.getPageCount(), size: bytes.byteLength, thumb: null };
+    renderSlot(i); refresh();
+    makeThumb(slots[i]).then(c => {
+      if (!c) return;
+      const idx = slots.indexOf(slots.find(s => s && s.bytes === bytes));
+      if (idx < 0) return;
+      slots[idx].thumb = c;
+      const t = document.getElementById('thumb-' + idx);
+      if (t) { t.innerHTML = ''; t.appendChild(cloneCanvas(c)); }
+    });
+  }
+
+  function explain(err, name) {
+    const msg = String(err && (err.message || err));
+    if (/encrypt/i.test(msg)) return '“' + name + '”은(는) 암호가 걸려 있어 합칠 수 없어요. 암호를 해제한 PDF로 다시 올려 주세요.';
+    return '“' + name + '”을(를) PDF로 읽지 못했어요. 파일이 손상되지 않았는지 확인해 주세요.';
+  }
+
+  async function makeThumb(s) {
+    try {
+      if (!window.pdfjsLib) return null;
+      const pdf = await pdfjsLib.getDocument({ data: s.bytes.slice(0), isEvalSupported: false }).promise;
+      const page = await pdf.getPage(1);
+      const base = page.getViewport({ scale: 1 });
+      const scale = 240 / Math.max(base.width, base.height);
+      const vp = page.getViewport({ scale });
+      const c = document.createElement('canvas');
+      c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+      await page.render({ canvasContext: ctx, viewport: vp }).promise;
+      pdf.destroy();
+      return c;
+    } catch (e) { return null; }
+  }
+
+  swapBtn.addEventListener('click', () => {
+    slots.reverse(); renderSlot(0); renderSlot(1); refresh();
+    if (statusEl.classList.contains('ok')) setStatus('');
+  });
+
+  outname.addEventListener('input', () => { nameTouched = true; });
+
+  mergeBtn.addEventListener('click', async () => {
+    const [a, b] = slots;
+    if (!a || !b) return;
+    let fname = (outname.value || '').trim() || 'merged.pdf';
+    fname = fname.replace(/[\\/:*?"<>|]/g, '_');
+    if (!/\.pdf$/i.test(fname)) fname += '.pdf';
+    mergeBtn.disabled = true;
+    setStatus('합치는 중…');
+    try {
+      const out = await PDFLib.PDFDocument.create();
+      for (const s of [a, b]) {
+        const src = await PDFLib.PDFDocument.load(s.bytes);
+        const pages = await out.copyPages(src, src.getPageIndices());
+        pages.forEach(p => out.addPage(p));
+      }
+      const data = await out.save();
+      const blob = new Blob([data], { type: 'application/pdf' });
+      saveBlob(blob, fname);
+      setStatus('저장했어요: ' + fname + ' (' + out.getPageCount() + '쪽, ' + fmtSize(data.byteLength) + ')', 'ok');
+    } catch (err) {
+      setStatus('합치는 중 문제가 생겼어요: ' + (err && err.message || err), 'err');
+    } finally {
+      mergeBtn.disabled = !(slots[0] && slots[1]);
+    }
+  });
+
+  // Two small generated PDFs so the tool can be tried without real files
+  document.getElementById('sample').addEventListener('click', async () => {
+    const { PDFDocument, StandardFonts, rgb } = PDFLib;
+    async function make(title, n, color) {
+      const d = await PDFDocument.create();
+      const font = await d.embedFont(StandardFonts.HelveticaBold);
+      const body = await d.embedFont(StandardFonts.Helvetica);
+      for (let p = 1; p <= n; p++) {
+        const page = d.addPage([595, 842]);
+        page.drawRectangle({ x: 0, y: 742, width: 595, height: 100, color });
+        page.drawText(title, { x: 48, y: 780, size: 28, font, color: rgb(1, 1, 1) });
+        page.drawText('Page ' + p + ' of ' + n, { x: 48, y: 690, size: 18, font: body, color: rgb(.2, .25, .3) });
+        for (let k = 0; k < 14; k++) page.drawRectangle({ x: 48, y: 640 - k * 34, width: 499 - (k % 4) * 60, height: 10, color: rgb(.85, .88, .91) });
+      }
+      return d.save();
+    }
+    try {
+      nameTouched = false;
+      await addBytes('sample-report.pdf', await make('Sample Report', 3, rgb(.09, .13, .17)), 0);
+      await addBytes('sample-appendix.pdf', await make('Sample Appendix', 2, rgb(.17, .33, .84)), 1);
+      setStatus('예시 파일 두 개를 넣었어요. 실제 파일로 바꾸려면 각 칸의 “바꾸기”를 누르세요.');
+    } catch (e) { setStatus('예시 파일을 만들지 못했어요.', 'err'); }
+  });
+
+  renderSlot(0); renderSlot(1); refresh();
+})();
+</script>
+</body>
+</html>
